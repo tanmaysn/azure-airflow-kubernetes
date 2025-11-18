@@ -1,0 +1,6 @@
+apache-airflow
+pytesseract
+Pillow
+pdf2image
+python-multipart
+

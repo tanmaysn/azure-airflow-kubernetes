@@ -1,0 +1,59 @@
+# Full template: https://github.com/apache/airflow/blob/main/chart/values.yaml
+
+# Select certain nodes for airflow pods.
+nodeSelector:
+  agentpool: default
+
+# Airflow executor
+executor: "KubernetesExecutor"
+
+# Environment variables for all airflow containers
+env:
+  - name: ENVIRONMENT
+    value: dev
+
+extraEnv: |
+  - name: AIRFLOW__CORE__DEFAULT_TIMEZONE
+    value: 'Pacific/Pitcairn'
+
+# Configuration for postgresql subchart
+# Not recommended for production! Instead, spin up your own Postgresql server and use the `data` attribute in this
+# yaml file.
+postgresql:
+  enabled: true
+
+# Enable pgbouncer. See https://airflow.apache.org/docs/helm-chart/stable/production-guide.html#pgbouncer
+pgbouncer:
+  enabled: true
+
+dags:
+  gitSync:
+    enabled: true
+    repo: git@github.com:Epiq-LS/EpiqAI-Airflow.git
+    branch: main
+    rev: HEAD
+    depth: 1
+    maxFailures: 0
+    subPath: "dags"
+    sshKeySecret: airflow-git-ssh-secret
+    knownHosts: |
+      github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
+
+logs:
+  persistence:
+    enabled: true
+    existingClaim: pvc-airflow-logs
+    storageClassName: azureblob-fuse-premium
+
+# We disable the log groomer sidecar because we use Azure Blob Storage for logs, with lifecyle policy set.
+triggerer:
+  logGroomerSidecar:
+    enabled: false
+
+scheduler:
+  logGroomerSidecar:
+    enabled: false
+
+workers:
+  logGroomerSidecar:
+    enabled: false
