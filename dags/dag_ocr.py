@@ -124,7 +124,7 @@ with DAG(
 
 
 @dag(
-    dag_id='document_ocr_folder_v12',
+    dag_id='document_ocr_folder_v14',
     default_args=default_args,
     description="DAG for performing OCR on all documents in a folder",
     schedule=None,
@@ -184,7 +184,7 @@ def document_ocr_folder():
                 f"No input files found under '{prefix}' in container '{container}'")
         return blob_names
 
-    @task(max_active_tis_per_dag=10, )
+    @task(max_active_tis_per_dag=5)
     def process_blob(blob_name: str, conf: Dict[str, str]) -> Dict[str, str]:
         """
         Download the blob to a temp file, run OCR, and upload results under 'output/'.

@@ -1,6 +1,6 @@
 from datetime import datetime
 from airflow import DAG
-from airflow.contrib.operators.kubernetes_pod_operator import KubernetesPodOperator
+from airflow.providers.cncf.kubernetes.operators.kubernetes_pod import KubernetesPodOperator
 
 default_args = {
     "retries": 1,
