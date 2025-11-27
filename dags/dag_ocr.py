@@ -270,4 +270,5 @@ def document_ocr_folder():
     # Use partial to bind conf parameter, then expand blob_name
     process_results = process_blob.partial(conf=conf).expand(blob_name=blob_list)
 
-# document_ocr_folder()
+# Instantiate the DAG by calling the function
+document_ocr_folder()

@@ -20,7 +20,7 @@ spec:
     volumeHandle: airflow-logs-1
     volumeAttributes:
       resourceGroup: examplerg
-      storageAccount: exampleairflowsa
+      storageAccount: testairflowsa
       containerName: airflow-logs
     nodeStageSecretRef:
       name: storage-account-credentials

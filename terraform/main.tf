@@ -12,8 +12,8 @@ terraform {
 }
 
 provider "azurerm" {
-  tenant_id                  = "2a9f86a9-29e7-44bd-8863-849373d53db8" # Epiq
-  subscription_id            = "57a7f8d5-cea7-483a-8dda-30af42054d91" # Epiq AI Prod
+  tenant_id                  = "9e04cb4f-2d66-44bc-9166-d2bc015aee9e" # Epiq
+  subscription_id            = "b30a3be3-de2b-4fc8-9757-33a9971e184d" # PAYG01
   skip_provider_registration = false
   features {}
 }
@@ -33,8 +33,8 @@ resource "azurerm_kubernetes_cluster" "main" {
 
   default_node_pool {
     name       = "default"
-    node_count = 1
-    vm_size    = "Standard_DS2_v2"
+    node_count = 2
+    vm_size    = "Standard_D4s_v3"
   }
 
   identity {
@@ -49,8 +49,8 @@ resource "azurerm_kubernetes_cluster" "main" {
 # Azure Container Registry
 
 data "azurerm_container_registry" "nonprodacr" {
-  name                = "eaicrnonprod"
-  resource_group_name = "eai-u-eus-aiservice-1"  
+  name                = "tanmaysn"
+  resource_group_name = "tanmaysn-rg"  
 }
 
 resource "azurerm_role_assignment" "main" {

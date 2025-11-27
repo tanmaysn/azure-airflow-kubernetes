@@ -1,3 +1,3 @@
-rg_name  = "ep-d-wus-airflow-1"
-app_name = "afdemo"
+rg_name  = "wus-d-1"
+app_name = "test"
 location = "westus"
