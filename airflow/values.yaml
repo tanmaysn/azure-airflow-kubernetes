@@ -4,7 +4,7 @@
 nodeSelector:
   agentpool: default
 
-# Airflow executor
+# Airflow executor - KubernetesExecutor runs each task in its own pod
 executor: "KubernetesExecutor"
 
 # Environment variables for all airflow containers
@@ -23,6 +23,20 @@ extraEnv: |
     value: 'Asia/Kolkata'
   - name: AIRFLOW__CORE__LOAD_EXAMPLES
     value: 'false'
+  # Performance optimizations for KubernetesExecutor
+  - name: AIRFLOW__KUBERNETES_EXECUTOR__KUBE_CLIENT_REQUEST_TIMEOUT
+    value: "60"  # Increase timeout for pod creation (seconds)
+  - name: AIRFLOW__KUBERNETES_EXECUTOR__DELETE_WORKER_PODS
+    value: "true"  # Clean up completed pods
+  - name: AIRFLOW__KUBERNETES_EXECUTOR__DELETE_WORKER_PODS_ON_FAILURE
+    value: "true"  # Clean up failed pods
+  # Concurrency settings for better task execution
+  - name: AIRFLOW__CORE__PARALLELISM
+    value: "50"  # Maximum number of tasks that can run simultaneously
+  - name: AIRFLOW__CORE__DAG_CONCURRENCY
+    value: "20"  # Maximum number of tasks per DAG that can run simultaneously
+  - name: AIRFLOW__CORE__MAX_ACTIVE_RUNS_PER_DAG
+    value: "10"  # Maximum number of active DAG runs per DAG
 
 # Configuration for postgresql subchart
 # Not recommended for production! Instead, spin up your own Postgresql server and use the `data` attribute in this
@@ -71,10 +85,52 @@ triggerer:
   logGroomerSidecar:
     enabled: false
 
+# Scheduler configuration for better performance
 scheduler:
   logGroomerSidecar:
     enabled: false
+  # Scheduler resources - optimized for OCR workload
+  resources:
+    limits:
+      cpu: "1"
+      memory: "2Gi"
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+  # Increase scheduler parsing interval for better performance
+  # This reduces CPU usage from constant DAG parsing
+  extraEnv:
+    - name: AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL
+      value: "300"  # Parse DAGs every 5 minutes instead of default 30 seconds
+    - name: AIRFLOW__SCHEDULER__MAX_THREADS
+      value: "2"    # Number of threads for scheduling tasks
 
+# DAG Processor configuration - optimized for performance
+dagProcessor:
+  resources:
+    limits:
+      cpu: "1"
+      memory: "2Gi"
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+  # Reduce DAG parsing frequency to improve performance
+  extraEnv:
+    - name: AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL
+      value: "300"  # Parse DAGs every 5 minutes
+
+# Worker resources for KubernetesExecutor pods
+# With KubernetesExecutor, each task runs in its own pod
+# These resources apply to task execution pods
 workers:
   logGroomerSidecar:
     enabled: false
+  # Resource limits for KubernetesExecutor task pods
+  # OCR tasks are CPU and memory intensive, so allocate sufficient resources
+  resources:
+    limits:
+      cpu: "2"      # 2 CPU cores per task pod (for OCR processing)
+      memory: "4Gi" # 4GB memory per task pod (for PDF/image processing)
+    requests:
+      cpu: "1"      # Request 1 CPU core (guaranteed minimum)
+      memory: "2Gi" # Request 2GB memory (guaranteed minimum)

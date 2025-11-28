@@ -2,8 +2,12 @@ from multiprocessing import context
 import tempfile
 from typing import Dict, List
 from airflow import DAG
-from airflow.operators.python import PythonOperator
-from airflow.decorators import dag, task
+from airflow.providers.standard.operators.python import PythonOperator
+# Use decorators from airflow.decorators for compatibility (sdk is newer but may not be available)
+try:
+    from airflow.sdk import dag, task
+except ImportError:
+    from airflow.decorators import dag, task
 from airflow.models import Variable
 from azure.storage.blob import BlobServiceClient
 
@@ -16,10 +20,12 @@ import json
 import traceback
 import logging
 
-# Configure logging
+# Configure logging - Use WARNING level in production for better performance
+# Set to INFO or DEBUG for troubleshooting
+LOG_LEVEL = logging.WARNING  # Change to logging.INFO for more verbose logs
 logger = logging.getLogger(__name__)
 logging.basicConfig(
-    level=logging.INFO,
+    level=LOG_LEVEL,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
@@ -221,7 +227,9 @@ with DAG(
     start_date=datetime(2025, 11, 11, 3, 0, 0),
     catchup=False,
     tags= ['ocr', 'document-processing', 'folder'],
-    max_active_runs=10
+    max_active_runs=10,
+    # Performance optimizations
+    max_active_tasks=50  # Allow more concurrent tasks
 )
 def document_ocr_folder():
     @task
@@ -379,7 +387,7 @@ def document_ocr_folder():
             logger.error(traceback.format_exc())
             raise
 
-    @task(max_active_tis_per_dag=5)
+    @task(max_active_tis_per_dag=20)  # Increased parallelism for better performance
     def process_blob(blob_name: str, conf: Dict[str, str]) -> Dict[str, str]:
         """
         Download the blob to a temp file, run OCR, and upload results under 'output/'.
@@ -401,10 +409,11 @@ def document_ocr_folder():
             logger.info(f"Processing blob in container: {container}")
 
             try:
+                # Create blob clients (reused for download and upload operations)
                 blob_service_client = BlobServiceClient.from_connection_string(
                     connection_string)
                 container_client = blob_service_client.get_container_client(container)
-                logger.debug("Created blob service and container clients")
+                # Reduced logging for performance - only log on error
             except Exception as e:
                 error_msg = f"Failed to create blob clients: {str(e)}"
                 logger.error(error_msg)
@@ -415,18 +424,17 @@ def document_ocr_folder():
             logger.info(f"Blob basename: {basename}, extension: {file_ext}")
 
             with tempfile.TemporaryDirectory() as tmpdir:
-                logger.debug(f"Created temporary directory: {tmpdir}")
                 local_path = os.path.join(tmpdir, basename)
                 
-                # Download blob
-                logger.info(f"Downloading blob '{blob_name}' to '{local_path}'")
+                # Download blob - optimized for performance
+                logger.info(f"Downloading blob '{blob_name}'")
                 try:
                     with open(local_path, 'wb') as f:
                         stream = container_client.download_blob(blob_name)
                         blob_data = stream.readall()
                         f.write(blob_data)
                     file_size = len(blob_data)
-                    logger.info(f"Successfully downloaded blob. Size: {file_size} bytes")
+                    logger.info(f"Downloaded {file_size} bytes")
                 except Exception as e:
                     error_msg = f"Failed to download blob '{blob_name}': {str(e)}"
                     logger.error(error_msg)
@@ -443,52 +451,47 @@ def document_ocr_folder():
                     error_msg = f"Downloaded file is empty: {local_path}"
                     logger.error(error_msg)
                     raise ValueError(error_msg)
-                logger.debug(f"Verified file exists. Size: {actual_size} bytes")
 
-                # Perform OCR
+                # Perform OCR - optimized logging
                 extracted_text = None
-                logger.info(f"Starting OCR processing for {file_ext} file")
+                logger.info(f"Starting OCR for {file_ext} file")
                 
                 try:
                     if file_ext == '.pdf':
-                        logger.info("Processing PDF file")
                         try:
                             images = convert_from_path(local_path)
-                            logger.info(f"PDF converted to {len(images)} images")
+                            logger.info(f"PDF: {len(images)} pages")
                             all_text = []
                             for i, image in enumerate(images):
-                                logger.debug(f"Processing PDF page {i+1}/{len(images)}")
                                 try:
                                     text = pytesseract.image_to_string(image)
                                     all_text.append(f"--- Page {i+1} ---\n{text}\n")
                                 except Exception as e:
-                                    logger.warning(f"Failed to process PDF page {i+1}: {str(e)}")
+                                    logger.warning(f"Page {i+1} OCR failed: {str(e)}")
                                     all_text.append(f"--- Page {i+1} ---\n[OCR Error: {str(e)}]\n")
                             extracted_text = "\n".join(all_text)
-                            logger.info(f"Extracted {len(extracted_text)} characters from PDF")
+                            logger.info(f"PDF OCR complete: {len(extracted_text)} chars")
                         except Exception as e:
-                            error_msg = f"Failed to convert PDF to images: {str(e)}"
+                            error_msg = f"PDF conversion failed: {str(e)}"
                             logger.error(error_msg)
                             raise
                             
                     elif file_ext in ['.png', '.jpg', '.jpeg', '.tiff', '.bmp']:
-                        logger.info(f"Processing image file: {file_ext}")
                         try:
                             image = Image.open(local_path)
-                            logger.debug(f"Image opened. Size: {image.size}, Mode: {image.mode}")
                             extracted_text = pytesseract.image_to_string(image)
-                            logger.info(f"Extracted {len(extracted_text)} characters from image")
+                            logger.info(f"Image OCR complete: {len(extracted_text)} chars")
                         except Exception as e:
-                            error_msg = f"Failed to process image: {str(e)}"
+                            error_msg = f"Image processing failed: {str(e)}"
                             logger.error(error_msg)
                             raise
                     else:
-                        error_msg = f"Unsupported file type: {file_ext}. Allowed types: {ALLOWED_FILE_TYPES}"
+                        error_msg = f"Unsupported file type: {file_ext}"
                         logger.error(error_msg)
                         raise ValueError(error_msg)
                     
                     if not extracted_text or len(extracted_text.strip()) == 0:
-                        logger.warning("No text extracted from the document")
+                        logger.warning("No text extracted")
                     
                 except Exception as e:
                     error_msg = f"OCR processing failed: {str(e)}"
@@ -500,17 +503,15 @@ def document_ocr_folder():
                 output_prefix = f"{root_prefix}/output2"
                 output_text_blob = f"{output_prefix}/{os.path.splitext(basename)[0]}_ocr_output.txt"
                 output_meta_blob = f"{output_prefix}/{os.path.splitext(basename)[0]}_metadata.json"
-                logger.info(f"Output paths - Text: {output_text_blob}, Metadata: {output_meta_blob}")
 
-                # Upload OCR results
-                logger.info(f"Uploading OCR output to '{output_text_blob}'")
+                # Upload OCR results - optimized
                 try:
                     text_bytes = extracted_text.encode('utf-8')
                     container_client.upload_blob(
                         name=output_text_blob, data=text_bytes, overwrite=True)
-                    logger.info(f"Successfully uploaded OCR output: {output_text_blob}")
+                    logger.info(f"Uploaded OCR output: {output_text_blob}")
                 except Exception as e:
-                    error_msg = f"Failed to upload OCR output to '{output_text_blob}': {str(e)}"
+                    error_msg = f"Failed to upload OCR output: {str(e)}"
                     logger.error(error_msg)
                     raise
 
@@ -524,18 +525,17 @@ def document_ocr_folder():
                     'file_extension': file_ext
                 }
                 
-                logger.info(f"Uploading metadata to '{output_meta_blob}'")
                 try:
                     metadata_json = json.dumps(metadata, indent=2)
                     container_client.upload_blob(
                         name=output_meta_blob, data=metadata_json, overwrite=True)
-                    logger.info(f"Successfully uploaded metadata: {output_meta_blob}")
+                    logger.info(f"Uploaded metadata: {output_meta_blob}")
                 except Exception as e:
-                    error_msg = f"Failed to upload metadata to '{output_meta_blob}': {str(e)}"
+                    error_msg = f"Failed to upload metadata: {str(e)}"
                     logger.error(error_msg)
                     raise
 
-                logger.info(f"Successfully processed blob '{blob_name}'. Extracted {len(extracted_text)} characters")
+                logger.info(f"Completed '{blob_name}': {len(extracted_text)} chars extracted")
                 return {
                     'status': 'success',
                     'original_blob': blob_name,
@@ -561,13 +561,12 @@ def document_ocr_folder():
                 'error_stacktrace': error_stacktrace
             }
         finally:
-            # Clean up local file if it exists
+            # Clean up local file if it exists (tempdir handles this, but explicit cleanup for safety)
             if local_path and os.path.exists(local_path):
                 try:
-                    logger.debug(f"Cleaning up temporary file: {local_path}")
                     os.remove(local_path)
                 except Exception as e:
-                    logger.warning(f"Failed to remove temporary file {local_path}: {str(e)}")
+                    logger.warning(f"Cleanup failed for {local_path}: {str(e)}")
 
     conf = get_conf()
     blob_list = list_blobs(conf)
